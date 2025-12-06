@@ -1,0 +1,11 @@
+[package]
+name = "One-Billion-Rows"
+version = "0.1.0"
+edition = "2024"
+
+[lints.clippy]
+pedantic = "warn"
+# cargo = "warn"
+
+
+[dependencies]
