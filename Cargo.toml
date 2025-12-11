@@ -7,5 +7,9 @@ edition = "2024"
 pedantic = "warn"
 # cargo = "warn"
 
+[profile.release]
+debug = true
+
 
 [dependencies]
+libc = "0.2.178"

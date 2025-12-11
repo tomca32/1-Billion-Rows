@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fmt::Display,
     fs::File,
     io::{BufRead, BufReader},
@@ -44,16 +44,24 @@ fn main() {
     let file = File::open("./measurements.txt").unwrap();
     let reader = BufReader::new(file);
 
-    let mut map = BTreeMap::new();
+    let mut map: HashMap<String, Stats> = HashMap::new();
 
     for line in reader.lines() {
         let line = line.unwrap();
         let (city, temp) = line.split_once(';').unwrap();
         let temp = temp.parse::<f64>().unwrap();
+        match map.get_mut(city) {
+            Some(stats) => stats.update(temp),
+            None => {
+                map.insert(city.to_string(), Stats::new(temp));
+            }
+        }
         map.entry(city.to_owned())
             .and_modify(|stats: &mut Stats| stats.update(temp))
             .or_insert(Stats::new(temp));
     }
+
+    let map = BTreeMap::from_iter(map);
 
     print!("{{");
     let mut iter = map.into_iter().peekable();
