@@ -3,6 +3,7 @@ use std::{
     fmt::Display,
     fs::File,
     io::{BufRead, BufReader},
+    os::fd::AsRawFd,
 };
 
 struct Stats {
@@ -41,19 +42,32 @@ impl Display for Stats {
 }
 
 fn main() {
-    let file = File::open("./measurements.txt").unwrap();
-    let reader = BufReader::new(file);
+    let buffer = mmap();
 
-    let mut map: HashMap<String, Stats> = HashMap::new();
+    let mut map: HashMap<Vec<u8>, Stats> = HashMap::new();
 
-    for line in reader.lines() {
-        let line = line.unwrap();
-        let (city, temp) = line.split_once(';').unwrap();
-        let temp = temp.parse::<f64>().unwrap();
+    for line in buffer.split(|c| *c == b'\n') {
+        if line.is_empty() {
+            break;
+        }
+        let mut fields = line.rsplitn(2, |c| *c == b';');
+        let temp = fields.next().unwrap_or_else(|| {
+            panic!("Temp was none: {:?}", unsafe {
+                std::str::from_utf8_unchecked(line)
+            })
+        });
+        let city = fields.next().unwrap_or_else(|| {
+            panic!("City was none: {:?}", unsafe {
+                std::str::from_utf8_unchecked(line)
+            })
+        });
+        let temp = unsafe { std::str::from_utf8_unchecked(temp) }
+            .parse::<f64>()
+            .unwrap();
         match map.get_mut(city) {
             Some(stats) => stats.update(temp),
             None => {
-                map.insert(city.to_string(), Stats::new(temp));
+                map.insert(city.into(), Stats::new(temp));
             }
         }
         map.entry(city.to_owned())
@@ -61,7 +75,10 @@ fn main() {
             .or_insert(Stats::new(temp));
     }
 
-    let map = BTreeMap::from_iter(map);
+    let map = map
+        .into_iter()
+        .map(|(k, v)| (unsafe { String::from_utf8_unchecked(k) }, v))
+        .collect::<BTreeMap<_, _>>();
 
     print!("{{");
     let mut iter = map.into_iter().peekable();
@@ -73,4 +90,29 @@ fn main() {
     }
 
     print!("}}");
+}
+
+fn mmap() -> &'static [u8] {
+    let file = File::open("./measurements.txt").unwrap();
+    let len = file.metadata().unwrap().len();
+    unsafe {
+        let pointer = libc::mmap(
+            std::ptr::null_mut(),
+            len as libc::size_t,
+            libc::PROT_READ,
+            libc::MAP_SHARED,
+            file.as_raw_fd(),
+            0,
+        );
+
+        assert!(
+            pointer != libc::MAP_FAILED,
+            "Memory map failed: {:?}",
+            std::io::Error::last_os_error()
+        );
+
+        assert!(libc::madvise(pointer, len as libc::size_t, libc::MADV_SEQUENTIAL) == 0);
+
+        std::slice::from_raw_parts(pointer as *const u8, len as usize)
+    }
 }
